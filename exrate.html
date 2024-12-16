@@ -1,0 +1,369 @@
+<!DOCTYPE html> 
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>台灣匯率資料</title>
+    <style>
+        /* 保留原有樣式 */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+        }
+
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 2rem;
+            font-size: 2rem;
+        }
+
+        .search-container {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            justify-content: center;
+        }
+
+        input, button {
+            padding: 0.5rem 1rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 1rem;
+        }
+
+        input {
+            width: 300px;
+            transition: border-color 0.3s;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: #2980b9;
+        }
+
+        button:disabled {
+            background-color: #bdc3c7;
+            cursor: not-allowed;
+        }
+
+        .table-container {
+            overflow-x: auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+
+        th, td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+
+        th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        th.sortable {
+            cursor: pointer;
+            position: relative;
+            padding-right: 1.5rem;
+        }
+
+        th.sortable:hover {
+            background-color: #e9ecef;
+        }
+
+        th.sortable::after {
+            content: '⇅';
+            position: absolute;
+            right: 0.5rem;
+            color: #95a5a6;
+        }
+
+        th.sortable.asc::after {
+            content: '↑';
+            color: #3498db;
+        }
+
+        th.sortable.desc::after {
+            content: '↓';
+            color: #3498db;
+        }
+
+        tr:hover {
+            background-color: #f8f9fa;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 2rem;
+            color: #666;
+        }
+
+        .error {
+            color: #e74c3c;
+            text-align: center;
+            padding: 1rem;
+            background-color: #ffd7d7;
+            border-radius: 4px;
+            margin: 1rem 0;
+        }
+
+        @media (max-width: 768px) {
+            .search-container {
+                flex-direction: column;
+            }
+            
+            input {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>台灣匯率資料</h1>
+        <div class="search-container">
+            <input type="text" id="searchInput" placeholder="請輸入日期搜尋">
+            <button id="searchButton">搜尋</button>
+            <button id="fetchButton">更新資料</button>
+        </div>
+        <div id="errorContainer"></div>
+        <div class="table-container">
+            <table id="rateTable">
+                <thead>
+                    <tr>
+                        <th>日期</th>
+                        <th class="sortable" data-sort="USD/NTD">USD/NTD</th>
+                        <th class="sortable" data-sort="RMB/NTD">RMB/NTD</th>
+                        <th class="sortable" data-sort="EUR/USD">EUR/USD</th>
+                        <th class="sortable" data-sort="USD/JPY">USD/JPY</th>
+                        <th class="sortable" data-sort="GBP/USD">GBP/USD</th>
+                        <th class="sortable" data-sort="AUD/USD">AUD/USD</th>
+                        <th class="sortable" data-sort="USD/HKD">USD/HKD</th>
+                        <th class="sortable" data-sort="USD/RMB">USD/RMB</th>
+                        <th class="sortable" data-sort="USD/ZAR">USD/ZAR</th>
+                        <th class="sortable" data-sort="NZD/USD">NZD/USD</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td colspan="11" class="loading">請點擊「更新資料」按鈕載入匯率資料</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <script>
+        const searchInput = document.getElementById("searchInput");
+        const searchButton = document.getElementById("searchButton");
+        const fetchButton = document.getElementById("fetchButton");
+        const errorContainer = document.getElementById("errorContainer");
+        let rateData = [];
+        let currentSort = {
+            column: null,
+            direction: 'asc'
+        };
+
+        // 註冊事件監聽器
+        fetchButton.addEventListener("click", fetchExchangeRates);
+        searchButton.addEventListener("click", searchExchangeRate);
+        searchInput.addEventListener("keypress", (e) => {
+            if (e.key === "Enter") {
+                searchExchangeRate();
+            }
+        });
+
+        // 添加排序事件監聽器
+        document.querySelectorAll('th.sortable').forEach(th => {
+            th.addEventListener('click', () => {
+                const column = th.dataset.sort;
+                handleSort(column);
+            });
+        });
+
+        function handleSort(column) {
+            // 更新排序方向
+            if (currentSort.column === column) {
+                currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+            } else {
+                currentSort.column = column;
+                currentSort.direction = 'asc';
+            }
+
+            // 更新排序指示器
+            document.querySelectorAll('th.sortable').forEach(th => {
+                th.classList.remove('asc', 'desc');
+                if (th.dataset.sort === column) {
+                    th.classList.add(currentSort.direction);
+                }
+            });
+
+            // 重新顯示排序後的數據
+            const currentData = document.querySelector("#rateTable tbody").children.length === 1 
+                ? rateData 
+                : getFilteredData();
+            displayExchangeRates(sortData(currentData));
+        }
+
+        function sortData(data) {
+            if (!currentSort.column) return data;
+
+            return [...data].sort((a, b) => {
+                let aVal = a[currentSort.column];
+                let bVal = b[currentSort.column];
+
+                // 轉換為數值進行比較
+                aVal = aVal ? parseFloat(aVal.replace(/[^-\d.]/g, '')) : 0;
+                bVal = bVal ? parseFloat(bVal.replace(/[^-\d.]/g, '')) : 0;
+
+                if (isNaN(aVal)) aVal = 0;
+                if (isNaN(bVal)) bVal = 0;
+
+                return currentSort.direction === 'asc' 
+                    ? aVal - bVal 
+                    : bVal - aVal;
+            });
+        }
+
+        function setLoading(isLoading) {
+            fetchButton.disabled = isLoading;
+            searchButton.disabled = isLoading;
+            const tableBody = document.querySelector("#rateTable tbody");
+
+            if (isLoading) {
+                tableBody.innerHTML = '<tr><td colspan="11" class="loading">載入中...</td></tr>';
+            }
+        }
+
+        function showError(message) {
+            errorContainer.innerHTML = `<div class="error">${message}</div>`;
+        }
+
+        function clearError() {
+            errorContainer.innerHTML = '';
+        }
+
+        async function fetchExchangeRates() {
+            clearError();
+            setLoading(true);
+
+            try {
+                const response = await fetch("https://openapi.taifex.com.tw/v1/DailyForeignExchangeRates", {
+                    method: "GET",
+                    headers: {
+                        "accept": "application/json"
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                rateData = data;
+                displayExchangeRates(data);
+            } catch (error) {
+                console.error("獲取匯率資料時出錯:", error);
+                showError("獲取資料失敗，請稍後再試");
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        function displayExchangeRates(data) {
+            const tableBody = document.querySelector("#rateTable tbody");
+
+            if (!data || data.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="11" class="loading">無資料</td></tr>';
+                return;
+            }
+
+            // 如果有當前排序，則應用排序
+            const sortedData = currentSort.column ? sortData(data) : data;
+
+            tableBody.innerHTML = sortedData.map(rate => 
+                `<tr>
+                    <td>${rate.Date}</td>
+                    <td>${rate["USD/NTD"]}</td>
+                    <td>${rate["RMB/NTD"]}</td>
+                    <td>${rate["EUR/USD"]}</td>
+                    <td>${rate["USD/JPY"]}</td>
+                    <td>${rate["GBP/USD"]}</td>
+                    <td>${rate["AUD/USD"]}</td>
+                    <td>${rate["USD/HKD"]}</td>
+                    <td>${rate["USD/RMB"]}</td>
+                    <td>${rate["USD/ZAR"]}</td>
+                    <td>${rate["NZD/USD"]}</td>
+                </tr>`
+            ).join('');
+        }
+
+        function getFilteredData() {
+            const query = searchInput.value.trim().toLowerCase();
+            return rateData.filter(rate => 
+                rate.Date.toLowerCase().includes(query)
+            );
+        }
+
+        function searchExchangeRate() {
+            const query = searchInput.value.trim().toLowerCase();
+
+            if (!query) {
+                showError("請輸入搜尋內容！");
+                return;
+            }
+
+            clearError();
+
+            if (!rateData.length) {
+                showError("請先載入匯率資料！");
+                return;
+            }
+
+            const filteredData = getFilteredData();
+
+            if (filteredData.length === 0) {
+                showError("找不到符合的匯率資料！");
+            }
+
+            displayExchangeRates(filteredData);
+        }
+    </script>
+</body>
+</html>
